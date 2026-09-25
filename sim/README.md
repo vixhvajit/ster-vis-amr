@@ -9,9 +9,10 @@ It is not on GitHub yet.
 
 ## What the model is
 
-- **Printed parts** use the real CAD meshes, put back into their assembled
-  positions: the bottom deck with its motor walls, the top deck, the ABS camera
-  mount, 6 pillars and 8 L298N spacers.
+- **Printed parts** use the real CAD meshes in their assembled positions:
+  the bottom deck with its motor walls, the top deck, the ABS camera mount,
+  6 pillars, and the printed fasteners (wedges, motor pins, L298N standoffs,
+  clips, and the camera covers and keys). The chassis uses no screws.
 - **Bought parts** are boxes, the same size as the stand-ins in `chassis.py`:
   4 BO motors, the Pi 5 with its cooler, 2 L298Ns, the 3S battery, the buck
   converter and the two camera boards.
@@ -22,7 +23,7 @@ It is not on GitHub yet.
   which is about what a BO motor gets from a 55% PWM cap on 3S.
 - **Cameras:** two Camera Module 3 (66° HFOV, 1280 × 720, 10 Hz) on the 60 mm
   baseline. The left lens is at (0.083, 0.030, 0.119) m in `base_link`.
-- **Mass:** 0.79 kg in total. The printed parts' mass comes from the mesh volumes.
+- **Mass:** 0.78 kg in total. The printed parts' mass comes from the mesh volumes.
   The bought parts use typical published figures. Nothing was weighed.
 - **Collision:** a few boxes around the real outline, not the meshes.
 
@@ -115,8 +116,11 @@ beside it on `PYTHONPATH`.
 ```powershell
 . .\gz-env.ps1
 .\start-gz.ps1 amr_arena.sdf
-python -m amr run --sim --duration 180 --log outputun.csv          # --rate 4 to act like a slower Pi
-python score_run.py outputun.csv                                   # clearance, contacts, outputun.png
+python -m amr run --sim --duration 180 --log output
+un.csv          # --rate 4 to act like a slower Pi
+python score_run.py output
+un.csv                                   # clearance, contacts, output
+un.png
 .\stop-gz.ps1
 ```
 

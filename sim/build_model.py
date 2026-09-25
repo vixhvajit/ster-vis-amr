@@ -1,13 +1,13 @@
 """Build the Gazebo (Harmonic) model of the Ster-Vis test AMR from its CAD.
 
 The design lives in the Ster-Vis repo, in hardware/test-amr/ (branch
-feat/test-amr): chassis.py is the Fusion 360 generator and stl/ holds the
-print-oriented parts it exports. This script:
+feat/test-amr): chassis.py is the Fusion 360 generator. This script:
 
 - reads the dimensions straight out of chassis.py, so an edit there carries
   over here on the next run;
-- turns the print-oriented STLs back into their assembled positions and writes
-  them, in metres, to models/ster_vis_test_amr/meshes/;
+- takes the printed parts in their assembled positions (cad/assembly, which
+  chassis.py exports) and writes them, in metres, to
+  models/ster_vis_test_amr/meshes/;
 - adds the bought parts (motors, wheels, Pi 5, L298Ns, battery, buck converter,
   cameras) as boxes, sized as the stand-ins in chassis.py;
 - writes models/ster_vis_test_amr/model.sdf: 4WD skid steer on the stock 65 mm
@@ -52,13 +52,13 @@ LENS_LEN = 5.0            # mm; the lens stand-in in chassis.py's camera()
 MOTOR_KG, WHEEL_KG = 0.030, 0.028
 PLA_DENSITY, ABS_DENSITY = 1.24e-6, 1.04e-6   # kg per mm^3
 PRINT_FILL = 0.75         # 4 perimeters, 5 top/bottom layers, 30% infill: thin parts are mostly solid
-HARDWARE_KG = 0.035       # bolts and nuts, spread over the bottom deck
 
 # BO motor at about 200 rpm on a 65 mm wheel is about 0.68 m/s; the 55% PWM cap
 # on 3S keeps it near 6 V. Limits a little under that.
 MAX_SPEED, MAX_TURN, MAX_ACCEL = 0.6, 3.0, 1.0
 
 GREY_PLA = "0.62 0.63 0.66"
+LIGHT_PLA = "0.85 0.85 0.87"      # the printed pins, wedges, clips and covers
 DARK_ABS = "0.22 0.22 0.24"
 YELLOW = "0.95 0.75 0.10"
 GREEN = "0.10 0.45 0.20"
@@ -105,16 +105,6 @@ def write_stl(path: Path, tris: np.ndarray, name: str) -> None:
 
 def volume_mm3(tris: np.ndarray) -> float:
     return float(abs(np.einsum("ij,ij->i", tris[:, 0], np.cross(tris[:, 1], tris[:, 2])).sum()) / 6.0)
-
-
-def place(tris: np.ndarray, target_min: tuple[float, float, float], expect_size: tuple[float, float, float],
-          name: str) -> np.ndarray:
-    """Translate so the bounding box starts at target_min, checking its size first."""
-    lo, hi = tris.reshape(-1, 3).min(0), tris.reshape(-1, 3).max(0)
-    if not np.allclose(hi - lo, expect_size, atol=0.05):
-        raise ValueError(f"{name}: STL is {np.round(hi - lo, 2)} mm, chassis.py says {expect_size}. "
-                         "Re-export the STLs from chassis.py.")
-    return tris - lo + np.asarray(target_min)
 
 
 # -- SDF snippets -----------------------------------------------------------------
@@ -221,7 +211,6 @@ def camera_sensor(side: str, x: float, y: float, z: float) -> str:
 
 def build_model(source: Path) -> dict:
     d = load_dimensions(source / "chassis.py")
-    stl = source / "stl"
     MESH_DIR.mkdir(parents=True, exist_ok=True)
     uri = "meshes"                  # relative to model.sdf; gz resolves it from the model folder
 
@@ -231,41 +220,22 @@ def build_model(source: Path) -> dict:
     cam_front = d["PLATE_BACK_X"] + d["PLATE_T"] + d["CAM_BOSS_H"]
     ch = Chassis(z0)
 
-    # Printed parts. chassis.py lays them out in a row for export, and flips the
-    # bottom deck to print it walls-up; undo both.
-    bottom = read_stl(stl / "bottom_deck_PLA.stl") * np.array([1.0, -1.0, -1.0])   # the 180 deg flip about x
-    parts = {
-        "bottom_deck": (bottom, (-deck_l / 2, -deck_w / 2, -d["WALL_DROP"]),
-                        (deck_l, deck_w, deck_t + d["WALL_DROP"]), GREY_PLA, PLA_DENSITY),
-        "top_deck": (read_stl(stl / "top_deck_PLA.stl"), (-deck_l / 2, -deck_w / 2, z_top0),
-                     (deck_l, deck_w, deck_t + d["PI_BOSS_H"]), GREY_PLA, PLA_DENSITY),
-        "camera_mount": (read_stl(stl / "camera_mount_ABS.stl"), (d["FOOT_X0"], -d["CAM_HALF_W"], z_top_top),
-                         (cam_front - d["FOOT_X0"], 2 * d["CAM_HALF_W"], d["FOOT_T"] + d["PLATE_H"]),
-                         DARK_ABS, ABS_DENSITY),
-    }
+    # Printed parts: chassis.py also exports them where they sit on the robot
+    # (cad/assembly, mm, its own frame), so they only need scaling to metres.
+    assembly = source / "cad" / "assembly"
+    parts = {"bottom_deck": (GREY_PLA, PLA_DENSITY), "top_deck": (GREY_PLA, PLA_DENSITY),
+             "camera_mount": (DARK_ABS, ABS_DENSITY), "pillars": (GREY_PLA, PLA_DENSITY),
+             "fasteners": (LIGHT_PLA, PLA_DENSITY)}
     printed_kg = {}
-    for name, (tris, lo, size, rgb, density) in parts.items():
-        tris = place(tris, lo, size, name)
+    for name, (rgb, density) in parts.items():
+        tris = read_stl(assembly / f"{name}.stl")
+        lo, hi = tris.reshape(-1, 3).min(0), tris.reshape(-1, 3).max(0)
         printed_kg[name] = volume_mm3(tris) * density * PRINT_FILL
         write_stl(MESH_DIR / f"{name}.stl", tris / 1000, name)      # chassis.py frame; the visual pose lifts it
         ch.mesh(name, f"{uri}/{name}.stl", rgb)
-        ch.box(f"{name}_mass", lo[0], lo[0] + size[0], lo[1], lo[1] + size[1], lo[2], lo[2] + size[2],
-               kg=printed_kg[name])
-
-    # Pillars and L298N spacers: one mesh each, centred, placed many times.
-    for name, fname, dia, h, spots in (
-            ("pillar", "pillar_PLA_x6.stl", d["PILLAR_D"], d["PILLAR_H"], d["PILLARS"]),
-            ("spacer", "l298n_spacer_PLA_x8.stl", d["SPACER_D"], d["SPACER_H"],
-             [(cx + dx, cy + dy) for cx, cy in d["L298N_CENTRES"]
-              for dx in (-d["L298N_HOLE"], d["L298N_HOLE"]) for dy in (-d["L298N_HOLE"], d["L298N_HOLE"])])):
-        tris = place(read_stl(stl / fname), (-dia / 2, -dia / 2, 0), (dia, dia, h), name)
-        write_stl(MESH_DIR / f"{name}.stl", tris / 1000, name)
-        kg = volume_mm3(tris) * PLA_DENSITY * PRINT_FILL
-        for i, (px, py) in enumerate(spots):
-            ch.mesh(f"{name}_{i + 1}", f"{uri}/{name}.stl", GREY_PLA, at=(px, py, z_bot_top))
-            ch.box(f"{name}_{i + 1}_mass", px - dia / 2, px + dia / 2, py - dia / 2, py + dia / 2,
-                   z_bot_top, z_bot_top + h, kg=kg)
-        printed_kg[name + "s"] = kg * len(spots)
+        ch.box(f"{name}_mass", lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], kg=printed_kg[name])
+    for stale in ("pillar.stl", "spacer.stl"):
+        (MESH_DIR / stale).unlink(missing_ok=True)
 
     # Bought parts, as the stand-ins in chassis.py.
     inner = d["MOTOR_OUTER_Y"] - d["TT_THICK"]
@@ -293,7 +263,6 @@ def build_model(source: Path) -> dict:
     ch.box("battery_3s", bx0, bx1, -bhw, bhw, z_bot_top, z_bot_top + 26, BLUE, 0.185)
     ux0, ux1, uhl = d["BUCK"]
     ch.box("buck_5v", ux0, ux1, -uhl, uhl, z_bot_top, z_bot_top + 20, GREEN, 0.020)
-    ch.box("hardware", -deck_l / 2, deck_l / 2, -deck_w / 2, deck_w / 2, 0, deck_t, kg=HARDWARE_KG)
     lens_z = d["lens_z"]()
     lens_x = cam_front + d["CAM_BOARD_T"] + LENS_LEN
     for side, cy in (("left", d["BASELINE"] / 2), ("right", -d["BASELINE"] / 2)):
