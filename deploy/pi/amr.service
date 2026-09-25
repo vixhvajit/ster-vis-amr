@@ -1,0 +1,29 @@
+[Unit]
+Description=Ster-Vis test AMR: obstacle avoidance on stereo depth
+After=ster-vis.service
+Wants=ster-vis.service
+
+[Service]
+Type=simple
+User=amr
+Group=amr
+SupplementaryGroups=gpio
+# lgpio writes small notify files into the working directory, so give it one.
+StateDirectory=amr
+WorkingDirectory=/var/lib/amr
+ExecStart=/opt/amr/venv/bin/amr --config /etc/amr/amr.toml run
+# The controller stops the motors on SIGTERM and whenever depth goes stale.
+KillSignal=SIGTERM
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+# Not enabled at boot by default: a robot that drives off by itself when the
+# power comes on is a hazard. `sudo systemctl enable amr` if you want that.
+[Install]
+WantedBy=multi-user.target

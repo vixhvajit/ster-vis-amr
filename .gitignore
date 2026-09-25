@@ -1,0 +1,7 @@
+# Run output: logs, pictures, videos
+output/
+__pycache__/
+*.egg-info/
+build/
+dist/
+.pytest_cache/

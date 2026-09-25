@@ -1,0 +1,39 @@
+# Settings for the amr service: /etc/amr/amr.toml. After editing:
+#   sudo systemctl restart amr
+# Every value here is the default; change what you need, delete the rest.
+# All settings and what they mean: src/amr/config.py.
+
+# -- motion ---------------------------------------------------------------------
+max_speed = 0.30          # m/s
+max_turn = 1.5            # rad/s
+stop_m = 0.30             # obstacle this close ahead of the front: stop and turn
+slow_m = 0.90             # full speed beyond this
+
+# -- power: the duty cap is motor_max_v / (battery_full_v - driver_drop_v) --------
+battery_full_v = 12.6     # 3S
+driver_drop_v = 2.0       # L298N
+motor_max_v = 6.0         # BO motor rating
+no_load_rpm = 200.0       # measure yours: it sets how duty maps to speed
+
+# -- Ster-Vis ---------------------------------------------------------------------
+stervis_url = "http://127.0.0.1:8080"
+
+# -- wiring (BCM GPIO numbers) -----------------------------------------------------
+# forward/backward go to the L298N channel's IN pins. Leave the EN jumpers on,
+# or wire EN to a pin and set enable = <pin>. If `amr motor-test` shows a wheel
+# turning backwards, set invert = true for it.
+[motors.front_left]       # left L298N, OUT1/OUT2
+forward = 17
+backward = 27
+
+[motors.rear_left]        # left L298N, OUT3/OUT4
+forward = 22
+backward = 23
+
+[motors.front_right]      # right L298N, OUT1/OUT2
+forward = 5
+backward = 6
+
+[motors.rear_right]       # right L298N, OUT3/OUT4
+forward = 13
+backward = 19
