@@ -11,23 +11,23 @@ It is not on GitHub yet.
 
 - **Printed parts** use the real CAD meshes in their assembled positions:
   the bottom deck with its motor walls, the top deck, the ABS camera mount,
-  6 pillars, and the printed fasteners (wedges, motor pins, L298N standoffs,
-  clips, and the camera covers and keys). The chassis uses no screws.
+  the deck (with its camera bracket, battery tray and posts) and the camera
+  covers and keys.
 - **Bought parts** are boxes, the same size as the stand-ins in `chassis.py`:
   4 BO motors, the Pi 5 with its cooler, 2 L298Ns, the 3S battery, the buck
   converter and the two camera boards.
 - **Wheels:** four 65 × 26 mm wheels on revolute joints. The wheelbase is
-  124 mm and the track is 170 mm.
+  124 mm and the track is 166 mm.
 - **Drive:** 4WD skid steer through gz's `DiffDrive`, with both wheels on a side
   driven together (each L298N drives one side). Speed is capped at 0.6 m/s,
   which is about what a BO motor gets from a 55% PWM cap on 3S.
 - **Cameras:** two Camera Module 3 (66° HFOV, 1280 × 720, 10 Hz) on the 60 mm
-  baseline. The left lens is at (0.083, 0.030, 0.119) m in `base_link`.
-- **Mass:** 0.78 kg in total. The printed parts' mass comes from the mesh volumes.
+  baseline. The left lens is at (0.082, 0.030, 0.070) m in `base_link`.
+- **Mass:** 0.64 kg in total. The printed parts' mass comes from the mesh volumes.
   The bought parts use typical published figures. Nothing was weighed.
 - **Collision:** a few boxes around the real outline, not the meshes.
 
-`base_link` is on the floor under the centre of the chassis: x forward, y left,
+`base_link` is on the floor under the centre of the wheelbase: x forward, y left,
 z up. This is the frame the chassis README gives for `ster-vis ros2 --mount`.
 
 Two things in the sim are better than on the real robot:
@@ -89,20 +89,22 @@ On this Windows build, `model://` lookups through `GZ_SIM_RESOURCE_PATH` fail,
 so `worlds/amr_test.sdf` includes the model by a relative path
 (`../models/ster_vis_test_amr`) instead.
 
-## Checked (2026-09-25)
+## Checked (2026-09-25, minimal robot)
 
 `check_model.py` against the running server:
 
 | Check | Result |
 |---|---|
 | At rest | Settles on its wheels at floor height, level (roll and pitch 0.00°) |
-| Stereo geometry | The red target's face is 0.867 m from the left lens. A 68.0 px disparity at fx = 985.5 px gives 0.870 m, 2.2 mm off. The baseline, FOV and camera pose are right |
+| Stereo geometry | The red target's face is 0.868 m from the left lens. A 68.0 px disparity at fx = 985.5 px gives 0.870 m, 1.2 mm off. The baseline, FOV and camera pose are right |
 | Forward, 0.3 m/s for 2 s | Moved 0.601 m of the 0.6 m commanded, with no sideways drift and no pitching |
-| Turn in place, 1.5 rad/s for 2 s | Turned 2.29 rad of the 3.0 rad commanded, and the centre wandered 5.8 cm |
+| Turn in place, 1.5 rad/s for 2 s | Turned 2.27 rad of the 3.0 rad commanded, and the centre wandered 7.7 cm |
 
 The turn falls short because of skid-steer slip: the tyres scrub sideways, so
 the robot turns less than the wheel speeds say. The real 4WD robot will do this
-too, and more on carpet.
+too, and more on carpet. `amr run --sim` sends turns multiplied by `turn_gain`
+(1.3), as the real motor mixing does, so the model turns about as fast as it
+is told.
 
 ## Driving it with the controller
 
@@ -127,12 +129,24 @@ un.png
 `score_run.py` checks the robot's true footprint against every wall and
 obstacle at every logged pose. The controller never reads that pose.
 
-Results on 2026-09-25, 180 s of sim time each:
+Results on 2026-09-25 for the minimal robot (lenses about 7 cm up), 180 s of
+sim time each:
 
-| Frames processed | Path | Contacts | Closest pass | Watchdog stops |
+| Arena | Frames processed | Path | Contacts | Closest pass |
 |---|---|---|---|---|
-| 10 per second (every pair) | 40.9 m | 0 | 4.0 cm | 0 |
-| 4 per second (`--rate 4`) | 38.3 m | 0 | 4.3 cm | 1, at the start |
+| seed 3 (the committed one) | 10 per second (every pair) | 33.3 m | 0 | 2.3 cm |
+| seed 3 | 4 per second (`--rate 4`) | 35.3 m | 0 | 10.1 cm |
+| seed 11 (`build_arena(seed=11)`) | 10 per second | 36.2 m | 0 | 8.9 cm |
+
+Getting there took three changes to the avoider:
+- **Without memory,** the robot brushed three obstacles in 180 s. All three
+  were on its left, where Ster-Vis has no depth at the image edge, so each
+  obstacle left the view before the robot had passed it.
+- **With memory alone,** grazes still happened while the robot arced slowly
+  round an obstacle it had never seen: the obstacle sat just outside the 66°
+  view on the inside of the turn.
+- **Capping arcs** at a 0.8 m radius, and turning in place for anything
+  sharper, stopped those grazes.
 
 ![Top-down path of the 10 Hz run](../docs/sim_run.png)
 

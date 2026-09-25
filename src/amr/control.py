@@ -50,7 +50,7 @@ def run(source, drive, config: Config, duration: float | None = None, log_path: 
             last = scan.stamp
             if duration is not None and scan.stamp - start > duration:
                 break
-            command = avoider.step(scan)
+            command = avoider.step(scan, dt, ramp.v, ramp.w)
             v, w = ramp.step(command.v, command.w, dt)
             drive.send(v, w)
             stats["frames"] += 1

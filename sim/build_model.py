@@ -20,8 +20,8 @@ feat/test-amr): chassis.py is the Fusion 360 generator. This script:
 
 Frames: the model's origin is on the floor under the centre of the chassis,
 x forward, y left, z up (base_link, as in the chassis README). chassis.py puts
-z = 0 at the underside of the bottom deck, which is 43.75 mm above the floor
-on the stock wheels.
+z = 0 at the underside of the deck, about 43 mm above the floor on the stock
+wheels.
 """
 
 from __future__ import annotations
@@ -50,6 +50,7 @@ LENS_LEN = 5.0            # mm; the lens stand-in in chassis.py's camera()
 
 # Masses (kg) of the bought parts: typical published figures, not weighed.
 MOTOR_KG, WHEEL_KG = 0.030, 0.028
+BATTERY_KG = 0.175         # Bonka 3S 2200 mAh 35C, per its listing
 PLA_DENSITY, ABS_DENSITY = 1.24e-6, 1.04e-6   # kg per mm^3
 PRINT_FILL = 0.75         # 4 perimeters, 5 top/bottom layers, 30% infill: thin parts are mostly solid
 
@@ -214,18 +215,16 @@ def build_model(source: Path) -> dict:
     MESH_DIR.mkdir(parents=True, exist_ok=True)
     uri = "meshes"                  # relative to model.sdf; gz resolves it from the model folder
 
-    z0 = d["TT_HEIGHT"] / 2 + d["WHEEL_D"] / 2           # floor to the underside of the bottom deck
-    deck_l, deck_w, deck_t = d["DECK_L"], d["DECK_W"], d["DECK_T"]
-    z_bot_top, z_top0, z_top_top, z_foot_top = d["Z_BOT_TOP"], d["Z_TOP0"], d["Z_TOP_TOP"], d["Z_FOOT_TOP"]
-    cam_front = d["PLATE_BACK_X"] + d["PLATE_T"] + d["CAM_BOSS_H"]
+    z0 = -d["FLOOR_Z"]                                  # floor to the underside of the deck
+    x0_deck, x1_deck, deck_w, z_top = d["DECK_X0"], d["DECK_X1"], d["DECK_W"], d["Z_TOP"]
     ch = Chassis(z0)
 
-    # Printed parts: chassis.py also exports them where they sit on the robot
+    # Printed parts: chassis.py exports them where they sit on the robot
     # (cad/assembly, mm, its own frame), so they only need scaling to metres.
+    for stale in MESH_DIR.glob("*.stl"):
+        stale.unlink()
     assembly = source / "cad" / "assembly"
-    parts = {"bottom_deck": (GREY_PLA, PLA_DENSITY), "top_deck": (GREY_PLA, PLA_DENSITY),
-             "camera_mount": (DARK_ABS, ABS_DENSITY), "pillars": (GREY_PLA, PLA_DENSITY),
-             "fasteners": (LIGHT_PLA, PLA_DENSITY)}
+    parts = {"deck": (GREY_PLA, PLA_DENSITY), "camera_clamps": (LIGHT_PLA, PLA_DENSITY)}
     printed_kg = {}
     for name, (rgb, density) in parts.items():
         tris = read_stl(assembly / f"{name}.stl")
@@ -234,54 +233,53 @@ def build_model(source: Path) -> dict:
         write_stl(MESH_DIR / f"{name}.stl", tris / 1000, name)      # chassis.py frame; the visual pose lifts it
         ch.mesh(name, f"{uri}/{name}.stl", rgb)
         ch.box(f"{name}_mass", lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], kg=printed_kg[name])
-    for stale in ("pillar.stl", "spacer.stl"):
-        (MESH_DIR / stale).unlink(missing_ok=True)
 
     # Bought parts, as the stand-ins in chassis.py.
     inner = d["MOTOR_OUTER_Y"] - d["TT_THICK"]
-    zc = -d["TT_HEIGHT"] / 2
+    zc, top = d["SHAFT_Z"], d["POCKET"]
     for s, sname in ((1, "front"), (-1, "rear")):
         for t, tname in ((1, "left"), (-1, "right")):
             sx = s * d["MOTOR_X"]
             ch.box(f"motor_{sname}_{tname}_gearbox", sx + s * d["TT_FRONT"], sx + s * (d["TT_FRONT"] - d["TT_GEARBOX"]),
-                   t * inner, t * d["MOTOR_OUTER_Y"], -d["TT_HEIGHT"], 0, YELLOW, MOTOR_KG * 0.6)
+                   t * inner, t * d["MOTOR_OUTER_Y"], top - d["TT_HEIGHT"], top, YELLOW, MOTOR_KG * 0.6)
             ch.box(f"motor_{sname}_{tname}_can", sx + s * (d["TT_FRONT"] - d["TT_GEARBOX"]),
                    sx + s * (d["TT_FRONT"] - d["TT_LENGTH"]), t * (inner + 1.9), t * (d["MOTOR_OUTER_Y"] - 1.9),
                    zc - 10, zc + 10, ALU, MOTOR_KG * 0.4)
-    pz = z_top_top + d["PI_BOSS_H"]
-    px0 = d["PI_SD_X"] - 85
-    ch.box("pi5_board", px0, d["PI_SD_X"], -28, 28, pz, pz + 1.6, GREEN, 0.035)
-    ch.box("pi5_ports", px0 - 2, px0 + 22, -26, 26, pz + 1.6, pz + 17.6, ALU, 0.011)
-    ch.box("pi5_cooler", px0 + 26, d["PI_SD_X"] - 8, -22, 22, pz + 1.6, pz + 32, ALU, 0.020)
-    lz = z_bot_top + d["SPACER_H"]
+    pz = z_top + d["PI_POST_H"]
+    pi_x, sd_y = d["PI_X"], d["PI_SD_Y"]
+    ports_y = sd_y - 85
+    ch.box("pi5_board", pi_x - 28, pi_x + 28, ports_y, sd_y, pz, pz + 1.6, GREEN, 0.035)
+    ch.box("pi5_ports", pi_x - 26, pi_x + 26, ports_y - 2, ports_y + 22, pz + 1.6, pz + 17.6, ALU, 0.011)
+    ch.box("pi5_cooler", pi_x - 22, pi_x + 22, ports_y + 26, sd_y - 8, pz + 1.6, pz + 32, ALU, 0.020)
+    lz = z_top + d["L298N_POST_H"]
     half = d["L298N_BOARD"] / 2
     for cx, cy in d["L298N_CENTRES"]:
         side = "left" if cy > 0 else "right"
         ch.box(f"l298n_{side}_board", cx - half, cx + half, cy - half, cy + half, lz, lz + 1.6, RED, 0.012)
         ch.box(f"l298n_{side}_heatsink", cx - 11.5, cx + 11.5, cy - 8, cy + 8, lz + 1.6, lz + 27, BLACK, 0.016)
-    bx0, bx1, bhw = d["BATTERY"]
-    ch.box("battery_3s", bx0, bx1, -bhw, bhw, z_bot_top, z_bot_top + 26, BLUE, 0.185)
-    ux0, ux1, uhl = d["BUCK"]
-    ch.box("buck_5v", ux0, ux1, -uhl, uhl, z_bot_top, z_bot_top + 20, GREEN, 0.020)
+    bx0, bx1, bhl, bh = d["BATTERY"]
+    ch.box("battery_bonka_3s", bx0, bx1, -bhl, bhl, z_top, z_top + bh, BLUE, BATTERY_KG)
+    ux0, ux1, uy0, uy1 = d["BUCK"]
+    ch.box("buck_5v", ux0, ux1, uy0, uy1, z_top, z_top + d["BUCK_H"], GREEN, 0.020)
     lens_z = d["lens_z"]()
-    lens_x = cam_front + d["CAM_BOARD_T"] + LENS_LEN
+    x_board = d["X_BOARD"]
+    lens_x = x_board + d["CAM_BOARD_T"] + LENS_LEN
     for side, cy in (("left", d["BASELINE"] / 2), ("right", -d["BASELINE"] / 2)):
-        ch.box(f"camera_{side}_board", cam_front, cam_front + d["CAM_BOARD_T"], cy - d["CAM_BOARD_W"] / 2,
+        ch.box(f"camera_{side}_board", x_board, x_board + d["CAM_BOARD_T"], cy - d["CAM_BOARD_W"] / 2,
                cy + d["CAM_BOARD_W"] / 2, d["CAM_BOARD_Z0"], d["CAM_BOARD_Z0"] + d["CAM_BOARD_H"], GREEN, 0.003)
-        ch.box(f"camera_{side}_lens", cam_front + d["CAM_BOARD_T"], lens_x, cy - 4.25, cy + 4.25,
+        ch.box(f"camera_{side}_lens", x_board + d["CAM_BOARD_T"], lens_x, cy - 4.25, cy + 4.25,
                lens_z - 4.25, lens_z + 4.25, BLACK, 0.001)
 
     # Collision: a few boxes around the real outline, no meshes.
-    ch.box("c_bottom_deck", -deck_l / 2, deck_l / 2, -deck_w / 2, deck_w / 2, 0, deck_t, collide=True)
+    ch.box("c_deck", x0_deck, x1_deck, -deck_w / 2, deck_w / 2, 0, z_top, collide=True)
     motor_x = d["MOTOR_X"] + d["TT_FRONT"]
     for t, tname in ((1, "left"), (-1, "right")):
-        ch.box(f"c_motors_{tname}", -motor_x, motor_x, t * (inner - d["WALL_T"]), t * d["MOTOR_OUTER_Y"],
-               -d["WALL_DROP"], 0, collide=True)
-    ch.box("c_between_decks", -deck_l / 2, deck_l / 2, -bhw, bhw, z_bot_top, z_top0, collide=True)
-    ch.box("c_top_deck", -deck_l / 2, deck_l / 2, -deck_w / 2, deck_w / 2, z_top0, z_top_top, collide=True)
-    ch.box("c_pi5", px0 - 2, d["PI_SD_X"], -28, 28, pz, pz + 32, collide=True)
-    ch.box("c_camera_mount", d["FOOT_X0"], lens_x, -d["CAM_HALF_W"], d["CAM_HALF_W"], z_top_top,
-           z_foot_top + d["PLATE_H"], collide=True)
+        ch.box(f"c_motors_{tname}", -motor_x, motor_x, t * inner, t * d["MOTOR_OUTER_Y"], top - d["TT_HEIGHT"], 0,
+               collide=True)
+    ch.box("c_battery", bx0 - 2.5, bx1 + 2.5, -bhl - 2.5, bhl + 2.5, z_top, z_top + bh, collide=True)
+    ch.box("c_boards", -45, pi_x + 28, ports_y - 2, sd_y, z_top, pz + 32, collide=True)
+    ch.box("c_camera_bracket", d["PLATE_X"], lens_x, -d["PLATE_HALF_W"], d["PLATE_HALF_W"], z_top,
+           d["PLATE_TOP"], collide=True)
 
     # Wheels on the motor shafts.
     radius, width = d["WHEEL_D"] / 2000, d["WHEEL_W"] / 1000
@@ -297,7 +295,7 @@ def build_model(source: Path) -> dict:
     sdf = f"""<?xml version="1.0" ?>
 <!-- GENERATED by build_model.py from the Ster-Vis hardware/test-amr CAD - edit
      that (or build_model.py), not this. Origin: on the floor under the centre
-     of the chassis; x forward, y left, z up. -->
+     of the wheelbase; x forward, y left, z up. -->
 <sdf version="1.10">
   <model name="{MODEL_NAME}">
     <link name="base_link">
@@ -343,7 +341,7 @@ def build_model(source: Path) -> dict:
   <version>1.0</version>
   <sdf version="1.10">model.sdf</sdf>
   <description>
-    4WD skid-steer test robot for Ster-Vis: 3D-printed chassis, BO (TT) gear
+    4WD skid-steer test robot for Ster-Vis: one 3D-printed deck, BO (TT) gear
     motors on 65 mm wheels, Raspberry Pi 5, two L298N drivers, 3S LiPo, and two
     Camera Module 3 on a {d["BASELINE"]:.0f} mm baseline. Generated from
     hardware/test-amr/chassis.py by build_model.py.
@@ -359,7 +357,7 @@ def build_model(source: Path) -> dict:
         "track_m": round(2 * wheel_y, 4),
         "wheel_radius_m": radius,
         "left_camera_m": (round(cam_x, 4), round(half_b, 4), round(cam_z, 4)),
-        "ground_clearance_mm": round(z0 - d["WALL_DROP"], 2),
+        "ground_clearance_mm": round(z0 + top - d["TT_HEIGHT"], 2),
     }
 
 

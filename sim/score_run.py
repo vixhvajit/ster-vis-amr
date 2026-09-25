@@ -23,7 +23,7 @@ import numpy as np
 
 HERE = Path(__file__).parent
 # Footprint in base_link: the wheels are the widest and the furthest forward.
-HALF_L, HALF_W = 0.0945, 0.098
+HALF_L, HALF_W = 0.0945, 0.096
 CONTACT_M = 0.005
 
 

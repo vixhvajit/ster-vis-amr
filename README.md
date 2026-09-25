@@ -1,8 +1,9 @@
 # Ster-Vis test AMR
 
 This is the software for the Ster-Vis test robot's Raspberry Pi 5. The robot is
-small: a 4WD skid steer with a 3D-printed chassis, BO gear motors, two L298N
-drivers, a 3S LiPo, and two Camera Module 3 on a 60 mm baseline. It sees only
+small and temporary: a 4WD skid steer on one printed deck (motors and boards
+glued on), BO gear motors, two L298N drivers, a Bonka 3S 2200 mAh LiPo, and two
+Camera Module 3 on a 60 mm baseline, about 7 cm above the floor. It sees only
 through [Ster-Vis](https://github.com/vixhvajit/Ster-Vis) stereo depth and
 steers around whatever the depth shows. The same controller also drives a
 Gazebo model of the robot, so you can try it before the hardware exists.
@@ -32,12 +33,21 @@ The motor side (gpiozero, lgpio, the L298Ns) has never been run.
   It does not use `/api/v1/scan` because that JSON writes "nothing in range"
   and "no depth" as the same `null`, and the avoider must tell a clear path
   from a blind one.
-- **Avoidance** is reactive. The nearest hit in a corridor the width of the
-  robot sets the speed. Obstacles to either side steer it away. Anything
-  closer than 0.30 m ahead makes it stop and turn in place towards the clearer
-  side until the way is open. If most of the view straight ahead has no depth,
-  it counts as blocked: Ster-Vis cannot match anything nearer than about
-  0.26 m, so that close an obstacle shows up as unknown, not clear.
+- **Avoidance** is reactive:
+  - The nearest hit in a corridor the width of the robot sets the speed.
+  - Obstacles to either side steer it away.
+  - Anything closer than 0.30 m ahead makes it stop and turn in place until
+    the way is open. It turns whichever way its corners can swing furthest,
+    and otherwise towards the clearer side.
+  - If most of the view straight ahead has no depth, that counts as blocked.
+    Ster-Vis cannot match anything nearer than about 0.26 m, so an obstacle
+    that close shows up as unknown, not clear.
+- **Short memory:** the cameras see only 66° ahead, and Ster-Vis has no depth
+  in the leftmost ~17% of the image, so obstacles leave the view before the
+  robot has passed them. Obstacle points seen in the last 8 s, within 1 m, are kept, carried
+  along by dead reckoning on the commanded motion, and used wherever the
+  cameras cannot currently see. Without this, the robot brushed obstacles
+  beside it in the Gazebo arena.
 - **Motors:** both motors on a side get the same command. Duty is capped at
   `motor_max_v / (battery_full_v - driver_drop_v)`, which is 0.57 by default,
   so the 6 V BO motors never see much more than 6 V from a full 3S pack. There

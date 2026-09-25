@@ -1,7 +1,7 @@
 """Robot settings: geometry, motors and wiring, avoidance.
 
-Defaults match the Ster-Vis test AMR (Ster-Vis repo, hardware/test-amr) as
-designed. Override any of them in a TOML file, by the same names:
+Defaults match the minimal Ster-Vis test AMR (Ster-Vis repo, hardware/test-amr)
+as designed: one printed deck, two L298Ns, the lenses about 7 cm up. Override any of them in a TOML file, by the same names:
 
     max_speed = 0.25
     stop_m = 0.4
@@ -53,11 +53,11 @@ def default_motors() -> dict[str, MotorPins]:
 @dataclass(frozen=True)
 class Config:
     # -- geometry (hardware/test-amr/chassis.py) --------------------------------
-    track_m: float = 0.170            # wheel centre to wheel centre
+    track_m: float = 0.166            # wheel centre to wheel centre
     wheel_radius_m: float = 0.0325    # 65 mm BO wheel
-    half_width_m: float = 0.098       # centre line to the outside of a wheel
+    half_width_m: float = 0.096       # centre line to the outside of a wheel
     front_m: float = 0.0945           # centre to the front of the front wheels
-    camera_x_m: float = 0.0826        # left camera in base_link; scan origin
+    camera_x_m: float = 0.0816        # left camera in base_link; scan origin
     camera_y_m: float = 0.030
 
     # -- power and motors ------------------------------------------------------
@@ -80,6 +80,7 @@ class Config:
     max_speed: float = 0.30           # m/s
     max_turn: float = 1.5             # rad/s
     max_accel: float = 0.8            # m/s^2
+    max_decel: float = 2.0            # m/s^2; braking
     max_turn_accel: float = 4.0       # rad/s^2
 
     # -- avoidance (distances from the robot's front) ----------------------------
@@ -93,9 +94,10 @@ class Config:
     # -- Ster-Vis ---------------------------------------------------------------
     stervis_url: str = "http://127.0.0.1:8080"
     scan_timeout_s: float = 0.5       # no fresh depth for this long: stop
-    # The scan band, relative to the camera (lens ~0.12 m up): from 3 cm above
-    # the floor to 5 cm above the lens, which is everything the robot can hit.
-    scan_min_height_m: float = -0.09
+    # The scan band, relative to the camera (lens ~0.07 m up): from 3 cm above
+    # the floor to 5 cm above the lens, which covers everything the robot can hit
+    # (the Pi's cooler tops out about 9 cm up).
+    scan_min_height_m: float = -0.04
     scan_max_height_m: float = 0.05
     scan_range_max_m: float = 2.5     # what a 60 mm baseline measures usefully
     scan_beams: int = 121

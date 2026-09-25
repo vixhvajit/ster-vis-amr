@@ -131,13 +131,17 @@ class GazeboDrive:
         from gz.transport13 import Node
 
         self.Twist = Twist
+        # The real motors mix turns with turn_gain to make up for skid-steer
+        # scrub (motors.mix); gz's DiffDrive does not, so apply it here too, and
+        # the model turns about as fast as it is told, like the real robot should.
+        self.turn_gain = config.turn_gain
         self.node = Node()
         self.pub = self.node.advertise(topic, Twist)
         time.sleep(0.3)     # let the publisher connect
 
     def send(self, v: float, w: float) -> None:
         twist = self.Twist()
-        twist.linear.x, twist.angular.z = v, w
+        twist.linear.x, twist.angular.z = v, w * self.turn_gain
         self.pub.publish(twist)
 
     def stop(self) -> None:
